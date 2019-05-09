@@ -1,0 +1,164 @@
+同样遇到问题
+代码
+int sort(int arr[]) 
+{
+	for (int i = 0; i < 10; i++)
+	{
+		cout << arr[i] << endl;
+	}
+}
+
+运行代码，输出arr长度=4，同时arr也可以作为数组输出，输出结果正常。从结果上看，arr退化为了一个指针，指向arr的第一个成员的地址。
+//数组名可以作为数组的第一个成员的地址（这和指针有什么区别？？？）
+
+
+在伯乐在线上看到一篇关于数组和指针的文章（文章链接：http://blog.jobbole.com/44863/），突然想到自己最近也遇到一个类似的有趣的案例，于是决定写下来和大家分享。
+
+1. 我的初衷
+　　我的初衷是想写一个简单通用的函数PrintIntArray用于打印一个int数组的各个元素。因为我想数组的长度是数组的属性，我不想每次调用此函数的时候手动传入数组长度，于是我将函数声明为PrintIntArray(int arr[])，然后写一个简单的内联函数（为了通用，声明为模板函数）用于动态获取数组长度（如下）：
+
+复制代码
+template <class T>
+inline int GetArrayLen(T& array)
+{
+　　//数组占用内存数除以单个元素占用内存数得到数组长度
+    return sizeof(array)/sizeof(array[0]);
+}
+复制代码
+　　这样，我的PrintIntArray函数就可以这样写：
+
+复制代码
+void PrintIntArray(int arr[])
+{
+    int len = GetArrayLen(arr);
+    for (int i = 0; i < len; i++)
+    {
+        printf("%d ", arr[i]);
+    }
+    printf("\r\n");
+}
+复制代码
+2. 初衷很美好，问题跑不掉
+　　为了测试打印函数，写一个main函数进行测试：
+
+复制代码
+void main(int argc, char* argv[])
+{
+    int arr[] = {1, 2, 3, 4, 5};
+    printf("array length: %d\r\n", GetArrayLen(arr));
+    printf("elements of array:\r\n");
+    PrintIntArray(arr);
+    getchar();
+}
+复制代码
+　　当运行测试程序的时候，运行结果却出乎我的意料：
+
+
+
+　　可以看到，GetArrayLen函数可以正确地计算数组长度，但是PrintIntArray却只打印出了数组的第一个元素。
+
+　　于是调试进到PrintIntArray函数的 int len = GetArrayLen(arr); 这句话，发现返回的值是1，怪不得只打印了第一个元素：
+
+
+
+　　这就奇怪了，GetArrayLen在PrintIntArray函数外面（main函数里面）的时候明明可以正确返回数组长度，为什么进到函数里面的时候行为就变得异常了？大家都知道，数组作为函数参数的时候传递的是指针，如果这是造成异常的原因，那么在main函数里面GetArrayLen(arr)这句话也是传递的指针，应该同样返回1才对，为什么它就可以正确地返回数组的长度？
+
+3. 问题分析
+　　后来经过更多的测试分析，发现问题出在GetArrayLen这个模板函数的声明、以及c++对模板的解析机制上。在PrintIntArray函数内部， int len = GetArrayLen(arr); 这句话返回1的原因稍微分析一下其实是容易理解的，因为当你将数组变量arr传递给PrintIntArray函数时，它其实已经退化成了指针，你再将指针传递给GetArrayLen函数，sizeof(arr)求得的是指针占用的内存数，结果是4；而sizeof(arr[0])返回的是arr第一个元素占用的内存字节数，因为是int数组，所以结果也是4。这就是GetArrayLen(arr)函数最后返回1的原因。
+
+　　而在main函数里面调用GetArrayLen(arr)函数的时候，在arr退化成指针之前，它要先被GetArrayLen模板函数解析，解析的结果就是模板函数形参中的T被解析为int[5]（这里似乎很奇怪，后面还有更详细的分析），形参array被当做实参arr的别名。实际上arr还是被当成数组看待的，即一块连续的内存，并没有退化成指针，因此此时sizeof(arr)的结果为5个int的长度，即20字节；而sizeof(arr[0])的结果依然是arr第一个元素占用的内存，即4字节，因此此时会返回正确的数组长度。
+
+　　为了验证这一猜想，我另外写了个测试程序，但此时我用的是double型数组，按照上面的分析，如果将数组名直接传递给GetArrayLen函数，它将依然被当成数组看待，因此sizeof(arr)的结果应该是40（5个double数据的长度），而sizeof(arr[0])的结果应该是8（double型数据长度），最终GetArrayLen函数返回正确的数组长度——5；但是如果将此数组的指针传递给GetArrayLen函数，那么sizeof(arr)的结果应该是4（指针占用内存数），而sizeof(arr[0])的结果依然是8，最终GetArrayLen函数返回0。
+
+　　为了调试方便，我将GetArrayLen函数重写为：
+
+复制代码
+template <class T>
+int GetArrayLen(T& array)
+{
+    int len1 = sizeof(array);
+    int len2 = sizeof(array[0]);
+    return len1 / len2;
+}
+复制代码
+　　测试用main函数如下：
+
+复制代码
+1 void main(int argc, char* argv[])
+2 {
+3     double arrDouble[] = {1, 2, 3, 4, 5};
+4     double* ptrDouble = arrDouble;
+5     printf("pass array to func GetArrayLen :%d\r\n", GetArrayLen(arrDouble));
+6     printf("pass pointer to func GetArrayLen :%d\r\n", GetArrayLen(ptrDouble));
+7     getchar();
+8 }
+复制代码
+　　当传递数组arrDouble进去的时候（第5行），单步调试到GetArrayLen函数内部，结果如下：
+
+
+
+　　当传递指针ptrDouble进去的时候（第6行），单步调试到GetArrayLen函数内部，结果如下：
+
+
+
+　　可见，上面的分析是正确的。程序最终的运行结果如下：
+
+
+
+4. 寻求改进
+　　经过这么多的分析最后发现，自己一开始写的打印函数PrintIntArray其实根本无法工作，因为他限制传入的数组不能为引用，这与数组传引用的机制相矛盾。其实如果清楚c++模板的解析机制，就不用绕这么多弯了，不仅可以写出数组打印函数，而且是对所有基础数据类型数组都有效的打印函数。
+
+　　我们继续分析。
+
+　　前面的分析写到，（GetArrayLen）“模板函数形参中的T被解析为int[5]”，不仅如此，如果你传递的数组长度为8，T就被解析为int[8]，长度为10，T就被解析为int[10]……我们发现模板解析机制可以自动得到输入数组的长度，这给了我们巨大的惊喜和启发，是不是可以利用此机制自动获取传入的数组长度呢？答案是肯定的，我们还是慢慢来看。
+
+　　一开始，针对通用数组打印函数问题，我也是百度了一下，得到的一个版本如下：如果你想打印长度为10的数组，那么可以这样写：
+
+复制代码
+template <class T>
+void PrintArray(T (&arr)[10])
+{
+    for (int i = 0; i < 10; i++)
+    {
+        printf("%d ", arr[i]);
+    }
+    printf("\r\n");
+}
+
+void main(int argc, char* argv[])
+{
+    int arr[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    PrintArray(arr);
+    getchar();
+}
+复制代码
+　　但是这样还是不够完美，因为只能限制打印的数组长度为10，如果改变一下数组，例如arr[] = {0, 1, 2, 3, 4}，因为传入数组长度和模板函数声明的长度不一致，编译都不会通过，会报如下错误：
+
+error C2784: “void PrintArray(T (&)[10])”: 未能从“int [5]”为“T (&)[10]”推导 模板 参数
+　　虽然不够完美，但是也正是这个不完美的版本以及这句编译提示，让我想到了c++背后的模板解析机制，以及做出“模板函数形参中的T被解析为int[5]”这句结论的原因。其实这个版本已经非常接近最终版本了，既然数组长度是动态解析的，那么我们只需要将模板函数声明中的常量10改为变量是不是就可以了呢？
+
+　　答案就是这样的，只需多加一个模板参数声明，最终完美版便诞生了：
+
+复制代码
+template <class T, int size>
+void PrintArray(T (&arr)[size])
+{
+    for (int i = 0; i < size; i++)
+    {
+        cout<<arr[i]<<" ";
+    }
+    cout<<endl;
+}
+复制代码
+　　为了通用性，改用cout输出，为此，需要添加如下两句预编译指令：
+
+#include <iostream>
+
+using namespace std;
+　　这样，你就可以用PrintArray打印任意（基础数据）类型、任意长度的数组了。
+
+　　这里再回过头来看一下模板解析过程。以array[] = {0, 1, 2, 3, 4}为例，当调用PrintArray(array)函数，遇到void PrintArray(T (&arr)[size])这样的模板函数声明时，编译器将形参arr作为实参array的别名，同时T被解析为int，size被解析为5（数组长度，可变），这样就可以正确打印出数组内容了。
+
+5. 结论
+数组传递给函数时会退化成指针
+模板是C++中一种灵活又复杂的机制，弄清楚这种机制能帮助你更简单高效地解决实际问题
